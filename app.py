@@ -471,16 +471,9 @@ def renderizar_detalhe_serie_unificado(
     prev_rf = linha_rf.get("algoritmo_previsto", "—") if linha_rf is not None else "N/D"
     acerto_rf = str(classe_real) == str(prev_rf)
 
-    llm_b_prev = linha_rf.get("llm_bruto_previsto",  "") if linha_rf is not None else ""
-    llm_e_prev = linha_rf.get("llm_est_previsto",    "") if linha_rf is not None else ""
-    llm_g_prev = linha_rf.get("llm_global_previsto", "") if linha_rf is not None else ""
-
-    cols_met = st.columns(5)
+    cols_met = st.columns(2)
     cols_met[0].metric("Classe real", classe_real)
     cols_met[1].metric("RF previsto", prev_rf, delta="✓" if acerto_rf else "✗", delta_color="normal" if acerto_rf else "inverse")
-    if llm_b_prev: cols_met[2].metric("LLM bruto",   llm_b_prev)
-    if llm_e_prev: cols_met[3].metric("LLM estat.",  llm_e_prev)
-    if llm_g_prev: cols_met[4].metric("LLM global",  llm_g_prev)
 
     if linha_rf is not None:
         for _pref, _label in [("llm_bruto", "LLM bruto"), ("llm_est", "LLM estat."), ("llm_global", "LLM global")]:
@@ -502,90 +495,6 @@ def renderizar_detalhe_serie_unificado(
     if valores:
         renderizar_grafico_explicabilidade(linha_rf, valores, key_prefix)
 
-    if linha_rf is not None:
-        with st.expander("Motivos e alinhamento (LLM)"):
-            col_b, col_e, col_g = st.columns(3)
-            with col_b:
-                st.markdown("**LLM bruto**")
-                al = linha_rf.get("llm_bruto_alinhamento", "")
-                sc = linha_rf.get("llm_bruto_score", "")
-                if al:
-                    st.markdown(f"Alinhamento: **{al}** (score: {sc})")
-                st.markdown(f"Motivos: {formatar_lista_legivel(linha_rf.get('llm_bruto_motivos','[]'))}")
-                st.markdown(f"Em comum: {formatar_lista_legivel(linha_rf.get('llm_bruto_motivos_em_comum','[]'))}")
-                st.markdown(f"Ausentes: {formatar_lista_legivel(linha_rf.get('llm_bruto_motivos_ausentes','[]'))}")
-            with col_e:
-                st.markdown("**LLM estat.**")
-                al = linha_rf.get("llm_est_alinhamento", "")
-                sc = linha_rf.get("llm_est_score", "")
-                if al:
-                    st.markdown(f"Alinhamento: **{al}** (score: {sc})")
-                st.markdown(f"Motivos: {formatar_lista_legivel(linha_rf.get('llm_est_motivos','[]'))}")
-                st.markdown(f"Em comum: {formatar_lista_legivel(linha_rf.get('llm_est_motivos_em_comum','[]'))}")
-                st.markdown(f"Ausentes: {formatar_lista_legivel(linha_rf.get('llm_est_motivos_ausentes','[]'))}")
-            with col_g:
-                st.markdown("**LLM global**")
-                al = linha_rf.get("llm_global_alinhamento", "")
-                sc = linha_rf.get("llm_global_score", "")
-                if al:
-                    st.markdown(f"Alinhamento: **{al}** (score: {sc})")
-                st.markdown(f"Motivos: {formatar_lista_legivel(linha_rf.get('llm_global_motivos','[]'))}")
-                st.markdown(f"Em comum: {formatar_lista_legivel(linha_rf.get('llm_global_motivos_em_comum','[]'))}")
-                st.markdown(f"Ausentes: {formatar_lista_legivel(linha_rf.get('llm_global_motivos_ausentes','[]'))}")
-            st.markdown(f"**Motivos especialista:** {formatar_lista_legivel(linha_rf.get('motivos_especialista','[]'))}")
-
-        with st.expander("Explicação textual"):
-            st.markdown(f"**Ground truth:** {linha_rf.get('explicacao_ground_truth','')}")
-            col_b2, col_e2, col_g2 = st.columns(3)
-            with col_b2:
-                st.markdown("**LLM bruto**")
-                analise_b = linha_rf.get("llm_bruto_analise", "")
-                if analise_b:
-                    st.markdown(f"*Análise:* {analise_b}")
-                exp_b = linha_rf.get("llm_bruto_explicacao", "")
-                if exp_b:
-                    st.markdown(f"*Explicação:* {exp_b}")
-            with col_e2:
-                st.markdown("**LLM estat.**")
-                analise_e = linha_rf.get("llm_est_analise", "")
-                if analise_e:
-                    st.markdown(f"*Análise:* {analise_e}")
-                exp_e = linha_rf.get("llm_est_explicacao", "")
-                if exp_e:
-                    st.markdown(f"*Explicação:* {exp_e}")
-            with col_g2:
-                st.markdown("**LLM global**")
-                analise_g = linha_rf.get("llm_global_analise", "")
-                if analise_g:
-                    st.markdown(f"*Análise:* {analise_g}")
-                exp_g = linha_rf.get("llm_global_explicacao", "")
-                if exp_g:
-                    st.markdown(f"*Explicação:* {exp_g}")
-
-        with st.expander("Probabilidades e pontos LLM"):
-            st.markdown(f"**Probabilidades (RF):** {linha_rf.get('probabilidades_algoritmo','{}')}")
-            col_pb, col_pe, col_pg = st.columns(3)
-            with col_pb:
-                st.markdown("**Pontos LLM bruto**")
-                pts_b = carregar_json(linha_rf.get("llm_bruto_pontos", "[]"), [])
-                if pts_b:
-                    st.dataframe(pd.DataFrame(pts_b), use_container_width=True, hide_index=True)
-                else:
-                    st.caption("Sem pontos.")
-            with col_pe:
-                st.markdown("**Pontos LLM estat.**")
-                pts_e = carregar_json(linha_rf.get("llm_est_pontos", "[]"), [])
-                if pts_e:
-                    st.dataframe(pd.DataFrame(pts_e), use_container_width=True, hide_index=True)
-                else:
-                    st.caption("Sem pontos.")
-            with col_pg:
-                st.markdown("**Pontos LLM global**")
-                pts_g = carregar_json(linha_rf.get("llm_global_pontos", "[]"), [])
-                if pts_g:
-                    st.dataframe(pd.DataFrame(pts_g), use_container_width=True, hide_index=True)
-                else:
-                    st.caption("Sem pontos.")
 
 
 # ─── Aba Métricas ─────────────────────────────────────────────────────────────
@@ -1422,29 +1331,15 @@ with aba_resultados:
     if df_resultados is None or df_resultados.empty:
         st.info("Execute o pipeline para gerar os resultados.")
     else:
-        algoritmos_disp = df_resultados["nome_algoritmo"].unique().tolist()
-        filtro = st.multiselect("Filtrar por algoritmo", algoritmos_disp, default=algoritmos_disp)
-        df_filt = df_resultados[df_resultados["nome_algoritmo"].isin(filtro)]
-
         colunas = [
             "id_serie", "classe_real", "nome_algoritmo", "algoritmo_previsto",
-            "llm_bruto_previsto", "llm_bruto_alinhamento",
-            "llm_est_previsto",   "llm_est_alinhamento",
-            "llm_global_previsto", "llm_global_alinhamento",
+            "llm_bruto_alinhamento", "llm_est_alinhamento", "llm_global_alinhamento",
             "shap_top_20", "lime_top_20",
             "llm_bruto_top_20", "llm_est_top_20", "llm_global_top_20",
             "erro_xai", "llm_bruto_erro", "llm_est_erro", "llm_global_erro",
         ]
-        colunas = [c for c in colunas if c in df_filt.columns]
-        st.dataframe(df_filt[colunas], use_container_width=True, hide_index=True)
-
-        for prefixo, label in [("llm_bruto_alinhamento", "LLM bruto"), ("llm_est_alinhamento", "LLM estat."), ("llm_global_alinhamento", "LLM global")]:
-            if prefixo in df_filt.columns and df_filt[prefixo].notna().any() and (df_filt[prefixo] != "").any():
-                st.markdown(f"**Distribuição alinhamento {label}**")
-                st.dataframe(
-                    df_filt[prefixo].value_counts(dropna=False).reset_index(),
-                    use_container_width=True, hide_index=True,
-                )
+        colunas = [c for c in colunas if c in df_resultados.columns]
+        st.dataframe(df_resultados[colunas], use_container_width=True, hide_index=True)
 
 # ── Detalhe por série ─────────────────────────────────────────────────────────
 with aba_detalhe:

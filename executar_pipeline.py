@@ -105,9 +105,6 @@ def _campos_llm_vazios(prefixo: str) -> dict:
     return {
         f"{prefixo}_pontos":          "[]",
         f"{prefixo}_top_20":          "[]",
-        f"{prefixo}_previsto":         "",
-        f"{prefixo}_confianca":        "",
-        f"{prefixo}_explicacao":       "",
         f"{prefixo}_analise":          "",
         f"{prefixo}_motivos":          "[]",
         f"{prefixo}_alinhamento":      "",
@@ -173,9 +170,6 @@ def _rodar_llm(
         campos = {
             f"{prefixo}_pontos":          _json_seguro(pontos_llm),
             f"{prefixo}_top_20":          _json_seguro(selecionar_top_pontos(pontos_llm, top_n=20)),
-            f"{prefixo}_previsto":         resp.get("classe_interpretada_pelo_llm", ""),
-            f"{prefixo}_confianca":        resp.get("nivel_confianca_llm", ""),
-            f"{prefixo}_explicacao":       resp.get("explicacao_do_llm", ""),
             f"{prefixo}_analise":          resp.get("analise_global_da_serie", ""),
             f"{prefixo}_motivos":          _json_seguro(motivos_llm),
             f"{prefixo}_alinhamento":      comp["alinhamento_llm_especialista"],

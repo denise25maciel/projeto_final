@@ -382,64 +382,40 @@ def montar_prompt_llm(
     else:
         bloco_serie = f"Valores completos, em ordem temporal:\n{json.dumps(valores_serie, ensure_ascii=False)}"
 
-    bloco_top_regras = json.dumps(top_regras or [], ensure_ascii=False, indent=2)
-
-    if incluir_feature_importance and feature_importances:
-        bloco_fi = json.dumps(feature_importances, ensure_ascii=False, indent=2)
-        linha_fi = f"- Importância global das features — top features do modelo:\n{bloco_fi}"
-    else:
-        linha_fi = "- Importância global das features: não fornecida nesta execução."
-
-    tem_top_regras = bool(top_regras)
-    if tem_top_regras:
-        linha_top_regras = (
-            f"- Pontos/dias mais relevantes nos caminhos de decisão (para esta série):\n{bloco_top_regras}"
-        )
-    else:
-        linha_top_regras = "- Caminho de decisão: não disponível para este tipo de algoritmo."
-
     # --- bloco_tarefa e bloco_formato_json (condicionais por modo) ---
     _ponto_exemplo = (
         '    {\n'
         '      "dia": 1,\n'
         '      "valor": 10,\n'
         '      "importancia": 0.90,\n'
-        '      "sentido": "favorece",\n'
-        '      "motivo_associado": "regularidade_constante",\n'
-        '      "justificativa": "Este ponto foi considerado importante porque..."\n'
+        '      "sentido": "evidencia",\n'
+        '      "motivo_associado": "pico_extremo",\n'
+        '      "justificativa": "Este ponto representa o maior valor da série..."\n'
         '    }'
     )
 
     if modo_entrada_llm == "global" and estatisticas is not None:
         bloco_tarefa = (
-            "Sua tarefa:\n"
-            "1. Analise as estatísticas globais da série temporal fornecidas.\n"
+            "Tarefa:\n"
+            "1. Analise as estatísticas globais da série temporal.\n"
             "2. Identifique os pontos mais significativos com base nessas estatísticas "
             "(picos, outliers, ponto de ruptura, valor mínimo/máximo, etc.).\n"
-            "3. Indique a classe mais plausível: perfil_A ou perfil_B.\n"
-            "4. Gere uma explicação textual da série.\n"
-            "5. Para cada ponto significativo, explique por que ele foi relevante.\n\n"
-            "Regras para os pontos significativos:\n"
+            "3. Para cada ponto selecionado, justifique sua relevância estatística.\n\n"
+            "Regras para os pontos:\n"
             "- Use o campo \"dia\" com o valor do campo \"posicao\" nas estatísticas globais.\n"
             "- O campo \"valor\" deve ser exatamente o valor informado para aquele ponto.\n"
-            "- O campo \"importancia\" deve ser um número entre 0 e 1.\n"
-            "- O campo \"sentido\" deve ser \"favorece\", \"reduz\" ou \"evidencia\".\n"
-            "- Escolha de 3 a 20 pontos.\n"
-            "- Os pontos devem emergir das estatísticas globais, não de suposições sobre valores brutos."
+            "- O campo \"importancia\" deve ser um número entre 0 e 1 (relevância estatística).\n"
+            "- O campo \"sentido\" deve ser \"evidencia\".\n"
+            "- Escolha de 3 a 20 pontos emergindo das estatísticas globais."
         )
         bloco_formato_json = (
             '{\n'
             f'  "id_serie": "{id_serie}",\n'
             '  "analise_global_da_serie": "Síntese baseada nas estatísticas globais.",\n'
-            '  "classe_interpretada_pelo_llm": "perfil_A ou perfil_B",\n'
-            '  "nivel_confianca_llm": "baixo, medio ou alto",\n'
-            '  "motivos_identificados_pelo_llm": ["motivo_1", "motivo_2"],\n'
-            '  "explicacao_do_llm": "Texto explicando a série com base nas estatísticas globais.",\n'
+            '  "motivos_identificados_pelo_llm": ["padrão_1", "padrão_2"],\n'
             '  "llm_pontos": [\n'
             + _ponto_exemplo + '\n'
-            '  ],\n'
-            '  "observacao_metodologica": "A explicação foi feita apenas com estatísticas globais '
-            'da série, sem os valores brutos e sem divisão por quartis."\n'
+            '  ]\n'
             '}'
         )
     elif modo_entrada_llm == "estatisticas" and estatisticas is not None:
@@ -449,98 +425,73 @@ def montar_prompt_llm(
         q4_pos = estatisticas["quartil_4"].get("posicoes", ["?", "?"])
 
         bloco_tarefa = (
-            "Sua tarefa — siga obrigatoriamente esta sequência de 5 passos:\n\n"
+            "Tarefa — siga obrigatoriamente esta sequência:\n\n"
             f"Passo 1 — Análise do Quartil 1 (posições {q1_pos[0]} a {q1_pos[-1]}): "
-            "com base nas estatísticas fornecidas, descreva o comportamento desse segmento "
-            "— nível médio, variação, presença de picos, outliers e regularidade.\n"
+            "descreva o comportamento estatístico desse segmento "
+            "(nível médio, variação, picos, outliers e regularidade).\n"
             f"Passo 2 — Análise do Quartil 2 (posições {q2_pos[0]} a {q2_pos[-1]}): idem.\n"
             f"Passo 3 — Análise do Quartil 3 (posições {q3_pos[0]} a {q3_pos[-1]}): idem.\n"
             f"Passo 4 — Análise do Quartil 4 (posições {q4_pos[0]} a {q4_pos[-1]}): idem.\n"
-
-            "classifique-a (perfil_A ou perfil_B) e selecione os pontos mais relevantes.\n\n"
-            "Regras para os pontos significativos:\n"
+            "Passo 5 — Síntese global: integre as quatro análises e selecione os pontos "
+            "estatisticamente mais relevantes da série.\n\n"
+            "Regras para os pontos:\n"
             "- Use o campo \"dia\" com o valor do campo \"posicao\" nas estatísticas dos quartis.\n"
             "- O campo \"valor\" deve ser exatamente o valor informado para aquele ponto.\n"
-            "- O campo \"importancia\" deve ser um número entre 0 e 1.\n"
-            "- O campo \"sentido\" deve ser \"favorece\", \"reduz\" ou \"evidencia\".\n"
-            "- Escolha de 3 a 20 pontos, emergindo da síntese do Passo 5 — "
-            "não distribua mecanicamente pontos entre os quartis.\n"
-            "- Os pontos devem ser os mais informativos para caracterizar a compreensão global da série."
+            "- O campo \"importancia\" deve ser um número entre 0 e 1 (relevância estatística).\n"
+            "- O campo \"sentido\" deve ser \"evidencia\".\n"
+            "- Escolha de 3 a 20 pontos emergindo da síntese global, "
+            "não distribua mecanicamente pontos entre os quartis."
         )
         bloco_formato_json = (
             '{\n'
             f'  "id_serie": "{id_serie}",\n'
-            '  "analise_quartil_1": "Texto da análise do Quartil 1.",\n'
-            '  "analise_quartil_2": "Texto da análise do Quartil 2.",\n'
-            '  "analise_quartil_3": "Texto da análise do Quartil 3.",\n'
-            '  "analise_quartil_4": "Texto da análise do Quartil 4.",\n'
-            '  "analise_global_da_serie": "Síntese dos 4 quartis e inferência global (Passo 5).",\n'
-            '  "classe_interpretada_pelo_llm": "perfil_A ou perfil_B",\n'
-            '  "nivel_confianca_llm": "baixo, medio ou alto",\n'
-            '  "motivos_identificados_pelo_llm": ["motivo_1", "motivo_2"],\n'
-            '  "explicacao_do_llm": "Texto explicando a série com base na síntese global.",\n'
+            '  "analise_quartil_1": "Análise do Quartil 1.",\n'
+            '  "analise_quartil_2": "Análise do Quartil 2.",\n'
+            '  "analise_quartil_3": "Análise do Quartil 3.",\n'
+            '  "analise_quartil_4": "Análise do Quartil 4.",\n'
+            '  "analise_global_da_serie": "Síntese dos 4 quartis (Passo 5).",\n'
+            '  "motivos_identificados_pelo_llm": ["padrão_1", "padrão_2"],\n'
             '  "llm_pontos": [\n'
             + _ponto_exemplo + '\n'
-            '  ],\n'
-            '  "observacao_metodologica": "A explicação foi feita com estatísticas da série '
-            'dividida em quartis, sem os valores brutos."\n'
+            '  ]\n'
             '}'
         )
     else:
         bloco_tarefa = (
-            "Sua tarefa:\n"
-            "1. Leia a série temporal completa e faça uma análise global dela. Você decide o que observar.\n"
-            "2. Com base nessa análise global, identifique os pontos que considera significativos "
-            "para caracterizar o comportamento da série.\n"
-            "3. Indique a classe mais plausível: perfil_A ou perfil_B.\n"
-            "4. Gere uma explicação textual da série.\n"
-            "5. Para cada ponto significativo, explique por que ele foi considerado relevante.\n\n"
-            "Regras para os pontos significativos:\n"
+            "Tarefa:\n"
+            "1. Leia a série temporal completa e faça uma análise global do seu comportamento.\n"
+            "2. Identifique os pontos estatisticamente mais significativos: "
+            "picos extremos, vales, rupturas abruptas, outliers ou regiões de alta variabilidade.\n"
+            "3. Para cada ponto selecionado, justifique sua relevância com base no comportamento observado.\n\n"
+            "Regras para os pontos:\n"
             "- Use o campo \"dia\" como posição da série começando em 1.\n"
             "- O campo \"valor\" deve ser exatamente o valor observado naquele dia.\n"
-            "- O campo \"importancia\" deve ser um número entre 0 e 1.\n"
-            "- O campo \"sentido\" deve ser \"favorece\", \"reduz\" ou \"evidencia\".\n"
-            "- O campo \"motivo_associado\" deve descrever livremente o padrão observado naquele ponto.\n"
-            "- Escolha de 3 a 20 pontos, não mais do que isso.\n"
-            "- Os pontos devem emergir da sua análise global, não de uma varredura isolada ponto a ponto."
+            "- O campo \"importancia\" deve ser um número entre 0 e 1 (relevância estatística).\n"
+            "- O campo \"sentido\" deve ser \"evidencia\".\n"
+            "- O campo \"motivo_associado\" deve descrever o padrão observado "
+            "(ex: \"pico_extremo\", \"vale_outlier\", \"ruptura_abrupta\").\n"
+            "- Escolha de 3 a 20 pontos emergindo da análise global, "
+            "não de uma varredura isolada ponto a ponto."
         )
         bloco_formato_json = (
             '{\n'
             f'  "id_serie": "{id_serie}",\n'
-            '  "analise_global_da_serie": "Texto com sua análise global da série antes de selecionar os pontos.",\n'
-            '  "classe_interpretada_pelo_llm": "perfil_A ou perfil_B",\n'
-            '  "nivel_confianca_llm": "baixo, medio ou alto",\n'
-            '  "motivos_identificados_pelo_llm": [\n'
-            '    "motivo_1",\n'
-            '    "motivo_2"\n'
-            '  ],\n'
-            '  "explicacao_do_llm": "Texto explicando a série temporal com base na análise global realizada.",\n'
+            '  "analise_global_da_serie": "Análise global da série.",\n'
+            '  "motivos_identificados_pelo_llm": ["padrão_1", "padrão_2"],\n'
             '  "llm_pontos": [\n'
             + _ponto_exemplo + '\n'
-            '  ],\n'
-            f'  "observacao_metodologica": "A explicação foi feita com a série temporal de teste e dados do algoritmo {nome_algoritmo}."\n'
+            '  ]\n'
             '}'
         )
 
     return f"""
-Você é um agente de explicabilidade de séries temporais educacionais.
-
-Contexto do experimento:
-- Existem duas classes possíveis: perfil_A e perfil_B.
-- Você receberá uma série temporal de teste.
-- Você receberá dados do algoritmo {nome_algoritmo} que fez a classificação dessa série.
+Você é um analista de séries temporais educacionais.
 
 {bloco_tarefa}
 
 Série temporal analisada:
 ID: {id_serie}
 {bloco_serie}
-
-Informações do algoritmo {nome_algoritmo} para a série analisada:
-- Classe prevista: {classe_predita}
-- Probabilidades: {json.dumps(probabilidades, ensure_ascii=False)}
-{linha_fi}
-{linha_top_regras}
 
 Responda obrigatoriamente em JSON válido, exatamente neste formato:
 
@@ -564,12 +515,8 @@ def _validar_resposta_llm(
     resposta.setdefault("analise_quartil_3", "")
     resposta.setdefault("analise_quartil_4", "")
     resposta.setdefault("analise_global_da_serie", "")
-    resposta.setdefault("classe_interpretada_pelo_llm", "")
-    resposta.setdefault("nivel_confianca_llm", "")
     resposta.setdefault("motivos_identificados_pelo_llm", [])
-    resposta.setdefault("explicacao_do_llm", "")
     resposta.setdefault("llm_pontos", [])
-    resposta.setdefault("observacao_metodologica", "")
 
     motivos = resposta.get("motivos_identificados_pelo_llm", [])
     if not isinstance(motivos, list):
