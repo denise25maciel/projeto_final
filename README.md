@@ -1,134 +1,166 @@
-# Projeto RF + LLM — versão essencial
+# Explicabilidade XAI em Séries Temporais Educacionais
 
-Objetivo: classificar séries temporais sintéticas com Random Forest e verificar se o LLM explica a classificação usando motivos compatíveis com os motivos da especialista.
+Estudo comparativo entre **SHAP**, **LIME** e três modos de **LLM** para identificação de pontos relevantes em séries temporais de acesso a material didático.
 
-## Fluxo
+## Objetivo
 
-1. Geração de base sintética com `perfil_A` e `perfil_B`.
-2. Treino do Random Forest usando apenas colunas `dia_*`.
-3. Classificação da base de teste.
-4. Envio ao LLM de:
-   - série temporal testada;
-   - classificação do Random Forest;
-   - probabilidades do Random Forest;
-   - hiperparâmetros do Random Forest.
-5. O LLM não recebe:
-   - exemplos classificados pelo RF;
-   - motivos da especialista;
-   - explicação ground truth.
-6. O sistema compara os motivos indicados pelo LLM com os motivos reais da especialista.
+Comparar como cada método de explicabilidade seleciona pontos significativos em uma série temporal de 181 dias, sem pedir ao LLM que classifique a série. O LLM recebe apenas os dados da série e é instruído a identificar pontos estatisticamente notáveis (picos, vales, rupturas, outliers).
+
+## Fluxo do experimento
+
+1. Geração de base sintética com dois perfis de estudante: `perfil_A` (rotina regular) e `perfil_B` (rotina irregular).
+2. Treino do **Random Forest** com as colunas `dia_*` da série temporal.
+3. Cálculo de explicabilidade local para cada série do conjunto de teste:
+   - **SHAP-RF** — contribuição por dia via TreeSHAP.
+   - **LIME-RF** — aproximação linear local por dia.
+   - **LLM bruto** — LLM recebe os valores diários completos.
+   - **LLM estat.** — LLM recebe estatísticas resumidas por quartil.
+   - **LLM global** — LLM recebe apenas estatísticas globais da série.
+4. Comparação dos pontos selecionados por cada método usando quatro métricas XAI.
+
+O LLM **não** é pedido para classificar a série nem para explicar a decisão do modelo — sua tarefa é exclusivamente identificar os pontos estatisticamente mais relevantes.
+
+## Métricas XAI
+
+### Métrica 1 — Cobertura de quartis
+Proporção dos pontos selecionados por cada método que recaem em cada um dos quatro quartis temporais (Q1 = dias 1–45, Q2 = 46–90, Q3 = 91–135, Q4 = 136–181). Referência: 25% por quartil indica ausência de viés temporal.
+
+### Métrica 2 — Taxa de detecção de eventos estruturais (TDE)
+Fração dos dias de evento (pico extremo, vale/outlier, ruptura abrupta) que foram incluídos na seleção de cada método. Limiares por série:
+- Pico extremo: `valor > μ + 1,5σ`
+- Vale / outlier: `valor < μ − 1,5σ`
+- Ruptura abrupta: `|valor[t] − valor[t−1]| > 1,5σ_diff`
+
+### Métrica 3 — Índice de Priorização de Eventos (IPE)
+- **IPE de seleção** (todos os métodos): razão entre a fração dos pontos selecionados que são eventos e a fração de dias de evento na série. IPE > 1 → prioriza eventos; IPE < 1 → subestima.
+- **IPE de importância** (somente SHAP e LIME): razão entre a contribuição média absoluta nos dias de evento e nos dias sem evento, entre os pontos selecionados.
+
+### Métrica 4 — Posição dos eventos no ranking SHAP/LIME
+SHAP e LIME ranqueiam todos os 181 dias por magnitude de contribuição. Posição média dos dias de evento nesse ranking (referência: posição 91 = acaso). Para os LLMs, reporta-se a TDE como equivalente funcional.
+
+## Resultados (conjunto de teste — 7 séries de 181 dias)
+
+### Cobertura de quartis
+
+| Método     | Q1 (1–45) | Q2 (46–90) | Q3 (91–135) | Q4 (136–181) |
+|------------|-----------|------------|-------------|--------------|
+| SHAP-RF    | 24,9%     | 24,9%      | 24,9%       | 25,4%        |
+| LIME-RF    | 24,9%     | 24,9%      | 24,9%       | 25,4%        |
+| LLM bruto  | 53,2%     | 12,9%      | 27,4%       | 6,5%         |
+| LLM estat. | 53,8%     | 16,9%      | 10,8%       | 18,5%        |
+| LLM global | 58,6%     | 20,0%      | 11,4%       | 10,0%        |
+
+SHAP e LIME distribuem uniformemente (~25% por quartil). Os LLMs concentram 53–59% dos pontos no Q1, indicando viés para o início da série.
+
+### Taxa de detecção de eventos (TDE)
+
+| Método     | Picos extremos | Vales / outliers | Rupturas abruptas |
+|------------|---------------|------------------|-------------------|
+| SHAP-RF    | 100,0%        | 100,0%           | 100,0%            |
+| LIME-RF    | 100,0%        | 100,0%           | 100,0%            |
+| LLM bruto  | 9,4%          | 6,9%             | 4,8%              |
+| LLM estat. | 25,5%         | 9,7%             | 8,0%              |
+| LLM global | 32,1%         | 9,7%             | 10,5%             |
+
+SHAP e LIME atingem 100% por cobrirem todos os dias. Os LLMs priorizam picos; rupturas abruptas são detectadas em menos de 11% dos casos.
+
+### IPE de seleção
+
+| Método     | Picos extremos | Vales / outliers | Rupturas abruptas |
+|------------|---------------|------------------|-------------------|
+| SHAP-RF    | 1,000         | 1,000            | 1,000             |
+| LIME-RF    | 1,000         | 1,000            | 1,000             |
+| LLM bruto  | 1,905         | 0,887            | 1,101             |
+| LLM estat. | 5,003         | 1,430            | 1,662             |
+| LLM global | 6,285         | 2,416            | 2,038             |
+
+O LLM global prioriza picos 6× acima do acaso. O LLM bruto subestima vales (IPE < 1).
+
+### IPE de importância — SHAP e LIME
+
+| Evento             | SHAP-RF | LIME-RF |
+|--------------------|---------|---------|
+| Picos extremos     | 0,837   | 0,833   |
+| Vales / outliers   | 1,515   | 1,512   |
+| Rupturas abruptas  | 0,990   | 0,979   |
+
+O Random Forest atribui **menor** contribuição absoluta aos picos do que aos dias comuns (IPE < 1), e **maior** contribuição às depressões (IPE ≈ 1,51). O modelo aprendeu a discriminar perfis pelos vales, não pelos picos.
+
+### Posição dos eventos no ranking SHAP/LIME (referência: 91 = acaso)
+
+| Evento             | SHAP-RF | LIME-RF |
+|--------------------|---------|---------|
+| Picos extremos     | 100,9   | 94,9    |
+| Vales / outliers   | 89,2    | 89,8    |
+| Rupturas abruptas  | 93,4    | 94,0    |
+
+Picos extremos ficam **abaixo do acaso** no ranking SHAP (posição 100,9 > 91), confirmando que o RF os trata como menos discriminativos. Vales ficam levemente acima do acaso.
+
+## Interface Streamlit
+
+| Aba              | Conteúdo                                                                 |
+|------------------|--------------------------------------------------------------------------|
+| Base             | Tabela da base sintética e visualização de cada série                    |
+| Métricas         | Acurácia, F1, precisão e recall do Random Forest                         |
+| Resultados       | Tabela de resultados do pipeline por série                               |
+| Detalhe por série | Gráfico interativo com pontos SHAP, LIME e LLM sobrepostos à série      |
+| Relatório        | Painéis de 5 subgráficos (um por método) para Perfil A e Perfil B       |
+| Métricas XAI     | Heatmaps das 4 métricas comparativas                                     |
+
+### Controles da aba Relatório
+- **% dos pontos SHAP e LIME mais significativos** — slider para filtrar os top-N% por magnitude.
+- **Visualizar importância** — quando ativo, linhas ficam cinza e os X são coloridos por nível: verde escuro (top 33%), laranja (médio 33%), vermelho (baixo 33%).
 
 ## Instalação
 
 ```bash
-python -m venv venv
-venv\Scripts\activate
+python -m venv .venv
+.venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
 ## Configuração da API
 
-Crie um arquivo `.env` na raiz do projeto:
+Crie `.env` na raiz do projeto:
 
 ```env
 OPENAI_API_KEY=sua_chave_aqui
 ```
 
+O modelo padrão é `gpt-4.1-mini` (configurável em `config.py`).
+
 ## Execução
 
 ```bash
-python -m streamlit run app.py
-```
-
-## Arquivos principais
-
-- `gerar_base.py`: gera a base sintética e os motivos da especialista.
-- `treinar_random_forest.py`: treina o Random Forest.
-- `teste_llm_resumo_rf.py`: monta o prompt e chama o LLM.
-- `executar_pipeline.py`: executa o experimento e compara LLM × especialista.
-- `app.py`: interface Streamlit.
-
-## Visualização SHAP/LIME por ponto da série
-
-Esta versão acrescenta uma camada visual de explicabilidade local na aba **Detalhe por série**.
-
-### O que foi acrescentado
-
-- Cálculo de contribuição por ponto/dia da série usando SHAP.
-- Cálculo de contribuição por ponto/dia da série usando LIME.
-- Gráfico interativo com seleção entre:
-  - `SHAP`
-  - `LIME`
-  - `SHAP + LIME`
-- Controle para escolher quantos pontos mais relevantes serão destacados.
-- Tabela com ranking, dia, data, valor, contribuição e sentido da contribuição.
-
-### Como interpretar o gráfico
-
-- A linha representa a série temporal original.
-- A linha tracejada representa a média da série.
-- Os marcadores indicam os pontos destacados pelo método escolhido.
-- Marcadores maiores indicam maior contribuição absoluta.
-- Contribuição positiva favorece a classe prevista pelo Random Forest.
-- Contribuição negativa reduz a força da classe prevista pelo Random Forest.
-
-### Execução atualizada
-
-Instale as dependências:
-
-```bash
-pip install -r requirements.txt
-```
-
-Execute o Streamlit:
-
-```bash
-python -m streamlit run app.py
+streamlit run app.py
 ```
 
 Na barra lateral:
-
 1. Clique em **Gerar base sintética**.
-2. Marque **Executar SHAP e LIME**.
-3. Clique em **Executar pipeline**.
-4. Abra a aba **Detalhe por série**.
-5. Escolha `SHAP`, `LIME` ou `SHAP + LIME`.
+2. Clique em **Executar pipeline**.
+3. Navegue pelas abas para explorar os resultados.
 
-### Arquivo novo
+## Arquivos principais
 
-- `explicabilidade_pontos.py`: concentra o cálculo e a organização dos pontos explicados por SHAP e LIME.
+| Arquivo                   | Descrição                                                      |
+|---------------------------|----------------------------------------------------------------|
+| `app.py`                  | Interface Streamlit com todas as abas                          |
+| `executar_pipeline.py`    | Orquestra treino, SHAP, LIME e chamadas ao LLM                 |
+| `treinar_modelos.py`      | Treino e avaliação do Random Forest                            |
+| `explicabilidade_pontos.py` | Cálculo de pontos SHAP e LIME por dia                        |
+| `teste_llm_modelos.py`    | Construção do prompt e chamada à API OpenAI                    |
+| `gerar_base.py`           | Geração da base sintética com motivos de especialista          |
+| `features_series.py`      | Extração de colunas `dia_*` da série temporal                  |
+| `gerar_relatorio_pdf.py`  | Geração de relatório PDF com gráficos e tabelas das métricas   |
+| `utils_json.py`           | Extração de JSON da resposta do LLM                            |
+| `config.py`               | Caminhos e constantes do projeto                               |
 
-### Colunas novas em `outputs/resultados/comparacao_resultados.csv`
+## Saídas
 
-- `shap_pontos`
-- `lime_pontos`
-- `shap_top_10`
-- `lime_top_10`
-- `erro_xai`
-
-
-## Atualização: comparação SHAP × LIME × LLM por ponto
-
-Esta versão adiciona uma camada de explicabilidade declarada pelo LLM. O LLM recebe somente a série temporal de teste e retorna:
-
-- `classe_interpretada_pelo_llm`
-- `motivos_identificados_pelo_llm`
-- `explicacao_do_llm`
-- `llm_pontos`: pontos que o LLM considerou relevantes, com dia, valor, importância, motivo associado e justificativa
-
-Na interface Streamlit, a aba **Detalhe por série** permite visualizar:
-
-- SHAP
-- LIME
-- LLM
-- SHAP + LIME
-- SHAP + LIME + LLM
-
-Também foram adicionadas colunas de comparação entre os dias destacados pelos métodos:
-
-- `dias_comuns_shap_lime`
-- `dias_comuns_shap_llm`
-- `dias_comuns_lime_llm`
-- `dias_comuns_todos`
-
-Para usar a camada LLM, configure `OPENAI_API_KEY` no `.env`, marque **Executar LLM** na barra lateral e execute o pipeline novamente.
+| Arquivo                                         | Conteúdo                                        |
+|-------------------------------------------------|-------------------------------------------------|
+| `data/series_temporais_educacionais.csv`        | Base sintética completa                         |
+| `outputs/resultados/comparacao_resultados.csv`  | Resultados por série: pontos SHAP, LIME e LLM  |
+| `outputs/resultados/modelo_random_forest.joblib`| Modelo treinado + métricas                      |
+| `outputs/resultados/resultado_llm_resumo.csv`   | Respostas brutas do LLM por série               |
+| `outputs/metodologia_e_resultados.txt`          | Metodologia das métricas e resultados numéricos |
