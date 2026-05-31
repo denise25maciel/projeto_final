@@ -720,13 +720,44 @@ def renderizar_aba_relatorio(df_resultados: pd.DataFrame | None) -> None:
     y_min -= margem
     y_max += margem
 
-    # ── Slider % SHAP/LIME ────────────────────────────────────────────────────
-    pct_shap_lime_rel = st.slider(
-        "% dos pontos SHAP e LIME mais significativos",
-        min_value=1, max_value=100, value=11, step=1,
-        key="rel_pct_shap_lime",
-        help="Percentual dos dias com maior impacto absoluto a destacar nos gráficos SHAP-RF e LIME-RF.",
-    )
+    # ── Controles ─────────────────────────────────────────────────────────────
+    col_ctrl1, col_ctrl2 = st.columns(2)
+    with col_ctrl1:
+        pct_shap_lime_rel = st.slider(
+            "% dos pontos SHAP e LIME mais significativos",
+            min_value=1, max_value=100, value=11, step=1,
+            key="rel_pct_shap_lime",
+            help="Percentual dos dias com maior impacto absoluto a destacar nos gráficos SHAP-RF e LIME-RF.",
+        )
+    with col_ctrl2:
+        visualizar_importancia = st.checkbox(
+            "Visualizar importância",
+            value=False,
+            key="rel_viz_importancia",
+            help=(
+                "Quando ativo: séries em cinza, pontos coloridos por nível de importância — "
+                "verde escuro (top 33%), laranja (médio 33%), vermelho (baixo 33%)."
+            ),
+        )
+
+    # ── Cores de importância ──────────────────────────────────────────────────
+    _COR_ALTO  = "#166534"   # verde escuro — top 33 %
+    _COR_MEDIO = "#f97316"   # laranja      — médio 33 %
+    _COR_BAIXO = "#dc2626"   # vermelho     — baixo 33 %
+
+    def _cor_imp(vc: float, p33: float, p66: float) -> str:
+        if vc >= p66:
+            return _COR_ALTO
+        elif vc >= p33:
+            return _COR_MEDIO
+        return _COR_BAIXO
+
+    def _pts_sel(pts_metodo: dict, metodo: str) -> list:
+        pts = pts_metodo.get(metodo, [])
+        if metodo in _METODOS_COM_CONTRIB and pts:
+            pts_sorted = sorted(pts, key=lambda p: p["abs_contrib"], reverse=True)
+            return pts_sorted[:max(1, int(pct_shap_lime_rel / 100 * len(pts_sorted)))]
+        return pts
 
     # ── Função de plotagem ────────────────────────────────────────────────────
     def _plotar_perfil(dados: list, titulo: str) -> None:
@@ -734,8 +765,8 @@ def renderizar_aba_relatorio(df_resultados: pd.DataFrame | None) -> None:
             st.info(f"Nenhuma série de {titulo} encontrada.")
             return
 
-        n    = len(dados)
-        cmap = plt.colormaps["tab20" if n > 10 else "tab10"].resampled(max(n, 1))
+        n     = len(dados)
+        cmap  = plt.colormaps["tab20" if n > 10 else "tab10"].resampled(max(n, 1))
         cores = [cmap(i) for i in range(n)]
 
         st.subheader(titulo)
@@ -743,45 +774,63 @@ def renderizar_aba_relatorio(df_resultados: pd.DataFrame | None) -> None:
 
         for ax, metodo in zip(axes, _METODOS_RELATORIO):
             contribs_metodo: list[float] = []
+
+            # Limiares de importância por método (para o modo visualizar_importancia)
+            if visualizar_importancia:
+                todos = [p["abs_contrib"] for _, _, pm in dados for p in _pts_sel(pm, metodo)]
+                if len(todos) >= 3:
+                    p33 = float(np.percentile(todos, 33.3))
+                    p66 = float(np.percentile(todos, 66.7))
+                elif todos:
+                    p33 = p66 = float(todos[0])
+                else:
+                    p33 = p66 = 0.0
+
             for i, (id_serie, vals, pts_metodo) in enumerate(dados):
                 cor  = cores[i]
                 dias = list(range(1, len(vals) + 1))
-                ax.plot(dias, vals, color=cor, linewidth=0.9, alpha=0.55, label=id_serie)
 
-                pts = pts_metodo.get(metodo, [])
-                if metodo in _METODOS_COM_CONTRIB and pts:
-                    pts_sorted = sorted(pts, key=lambda p: p["abs_contrib"], reverse=True)
-                    top_k = max(1, int(pct_shap_lime_rel / 100 * len(pts_sorted)))
-                    pts = pts_sorted[:top_k]
+                linha_cor   = "#aaaaaa" if visualizar_importancia else cor
+                linha_alpha = 0.4      if visualizar_importancia else 0.55
+                ax.plot(dias, vals, color=linha_cor, linewidth=0.9,
+                        alpha=linha_alpha, label=id_serie)
 
-                    # alpha proporcional ao impacto dentro do conjunto filtrado
+                pts = _pts_sel(pts_metodo, metodo)
+
+                if visualizar_importancia:
+                    for p in pts:
+                        d = p["dia"]
+                        if not (1 <= d <= len(vals)):
+                            continue
+                        pt_cor = _cor_imp(p["abs_contrib"], p33, p66)
+                        ax.scatter(d, vals[d - 1], color=pt_cor,
+                                   marker="x", s=70, linewidths=1.6, zorder=4)
+                        contribs_metodo.append(p["abs_contrib"])
+
+                elif metodo in _METODOS_COM_CONTRIB and pts:
                     c_vals = [p["abs_contrib"] for p in pts]
                     c_lo, c_hi = min(c_vals), max(c_vals)
                     c_rng = c_hi - c_lo if c_hi > c_lo else None
                     r, g, b, _ = cor
-
                     for p in pts:
                         d = p["dia"]
                         if not (1 <= d <= len(vals)):
                             continue
                         alpha = 1.0 if c_rng is None else 0.2 + 0.8 * (p["abs_contrib"] - c_lo) / c_rng
-                        ax.scatter(
-                            d, vals[d - 1],
-                            color=(float(r), float(g), float(b)), alpha=float(alpha),
-                            marker="x", s=70, linewidths=1.6, zorder=4,
-                        )
+                        ax.scatter(d, vals[d - 1],
+                                   color=(float(r), float(g), float(b)), alpha=float(alpha),
+                                   marker="x", s=70, linewidths=1.6, zorder=4)
                         contribs_metodo.append(p["abs_contrib"])
+
                 else:
                     for p in pts:
                         d = p["dia"]
                         if not (1 <= d <= len(vals)):
                             continue
                         r2, g2, b2, a2 = cor
-                        ax.scatter(
-                            d, vals[d - 1],
-                            color=(float(r2), float(g2), float(b2)), alpha=float(a2),
-                            marker="x", s=70, linewidths=1.6, zorder=4,
-                        )
+                        ax.scatter(d, vals[d - 1],
+                                   color=(float(r2), float(g2), float(b2)), alpha=float(a2),
+                                   marker="x", s=70, linewidths=1.6, zorder=4)
 
             ax.set_ylabel(_LABELS_RELATORIO[metodo], fontsize=8, labelpad=4)
             ax.set_ylim(y_min, y_max)
@@ -797,19 +846,32 @@ def renderizar_aba_relatorio(df_resultados: pd.DataFrame | None) -> None:
                     0.995, 0.97,
                     f"impacto  mín={c_min:.4f}  máx={c_max:.4f}",
                     transform=ax.transAxes, fontsize=6.5, va="top", ha="right",
-                    bbox=dict(boxstyle="round,pad=0.25", facecolor="white", alpha=0.75, edgecolor="#cccccc"),
+                    bbox=dict(boxstyle="round,pad=0.25", facecolor="white",
+                              alpha=0.75, edgecolor="#cccccc"),
                 )
 
         axes[-1].set_xlabel("Dia", fontsize=8)
 
-        handles, labels = axes[0].get_legend_handles_labels()
-        by_label = dict(zip(labels, handles))
-        axes[0].legend(
-            by_label.values(), by_label.keys(),
-            fontsize=6, loc="upper right",
-            ncol=max(1, n // 5),
-            framealpha=0.8,
-        )
+        if visualizar_importancia:
+            import matplotlib.lines as mlines
+            handles_imp = [
+                mlines.Line2D([], [], color=_COR_ALTO,  marker="x", linestyle="None",
+                              markersize=7, markeredgewidth=1.6, label="Alto (top 33%)"),
+                mlines.Line2D([], [], color=_COR_MEDIO, marker="x", linestyle="None",
+                              markersize=7, markeredgewidth=1.6, label="Médio (33–66%)"),
+                mlines.Line2D([], [], color=_COR_BAIXO, marker="x", linestyle="None",
+                              markersize=7, markeredgewidth=1.6, label="Baixo (bot. 33%)"),
+            ]
+            axes[0].legend(handles=handles_imp, fontsize=6, loc="upper right", framealpha=0.8)
+        else:
+            handles, labels = axes[0].get_legend_handles_labels()
+            by_label = dict(zip(labels, handles))
+            axes[0].legend(
+                by_label.values(), by_label.keys(),
+                fontsize=6, loc="upper right",
+                ncol=max(1, n // 5),
+                framealpha=0.8,
+            )
 
         fig.suptitle(titulo, fontsize=11, y=1.002)
         fig.tight_layout(pad=0.5, h_pad=0.5)
