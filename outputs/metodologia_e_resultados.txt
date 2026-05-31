@@ -1,0 +1,363 @@
+================================================================================
+METODOLOGIA DAS MÉTRICAS XAI E SEÇÃO DE RESULTADOS
+Relatório gerado em: 2026-05-31
+Experimento: Explicabilidade XAI em Séries Temporais Educacionais
+================================================================================
+
+
+════════════════════════════════════════════════════════════════════════════════
+PARTE I — METODOLOGIA DAS MÉTRICAS XAI
+════════════════════════════════════════════════════════════════════════════════
+
+Para comparar os métodos de explicabilidade — SHAP-RF, LIME-RF, LLM Bruto,
+LLM Estatístico e LLM Global —, foram definidas quatro métricas complementares.
+Cada uma captura um ângulo distinto de como cada método seleciona e pondera os
+pontos relevantes de uma série temporal. As métricas foram calculadas sobre o
+conjunto de teste, composto por 7 séries de 181 dias cada.
+
+────────────────────────────────────────────────────────────────────────────────
+MÉTRICA 1 — COBERTURA DE QUARTIS
+────────────────────────────────────────────────────────────────────────────────
+
+Definição:
+  A série temporal de 181 dias é dividida em quatro quartis temporais de
+  extensão aproximadamente igual:
+    Q1 = dias 1–45
+    Q2 = dias 46–90
+    Q3 = dias 91–135
+    Q4 = dias 136–181
+
+  Para cada método m e cada quartil q, computa-se a proporção de pontos
+  selecionados que recaem naquele período:
+
+    CQ(m, q) = |{dias selecionados por m que pertencem a q}| / |{dias selecionados por m}|
+
+Interpretação:
+  Uma distribuição sem viés temporal apresentaria CQ ≈ 25% em cada quartil.
+  Desvios expressivos indicam que o método privilegia sistematicamente certos
+  períodos da série. O indicador é especialmente relevante para detectar se um
+  método de explicabilidade concentra sua atenção no início, no meio ou no final
+  da janela temporal observada, independentemente de onde os eventos ocorrem.
+
+Referência:
+  CQ(m, q) = 25% para todo q representa distribuição uniforme (ausência de viés).
+
+────────────────────────────────────────────────────────────────────────────────
+MÉTRICA 2 — TAXA DE DETECÇÃO DE EVENTOS ESTRUTURAIS (TDE)
+────────────────────────────────────────────────────────────────────────────────
+
+Definição:
+  Eventos estruturais são dias que se destacam da dinâmica habitual da série.
+  Três tipos de eventos são identificados com base em limiares estatísticos
+  calculados por série:
+
+    Pico extremo:    valor[t] > μ + 1,5 · σ
+    Vale / outlier:  valor[t] < μ − 1,5 · σ
+    Ruptura abrupta: |valor[t] − valor[t−1]| > 1,5 · σ_diff
+
+  onde μ e σ são a média e o desvio-padrão da série, e σ_diff é o desvio-padrão
+  das diferenças absolutas entre dias consecutivos.
+
+  A taxa de detecção de um evento e pelo método m é:
+
+    TDE(m, e) = |{dias de evento e selecionados por m}| / |{dias de evento e na série}|
+
+Interpretação:
+  TDE = 1,0 indica que o método incluiu em sua seleção todos os dias em que
+  ocorreu o evento. TDE = 0 indica que o método ignorou completamente aquele
+  tipo de evento. A métrica é binária: não mede a magnitude da importância
+  atribuída, apenas a presença ou ausência do dia na seleção.
+
+  Ressalva importante: métodos que selecionam todos os dias da série (como SHAP
+  e LIME aplicados com 100% de cobertura) atingem TDE = 1,0 por construção, sem
+  que isso implique que o modelo considere esses eventos relevantes para a
+  classificação. Para esses métodos, o IPE de Importância (Métrica 3b) e a
+  Posição no Ranking (Métrica 4) são os indicadores mais informativos.
+
+────────────────────────────────────────────────────────────────────────────────
+MÉTRICA 3 — ÍNDICE DE PRIORIZAÇÃO DE EVENTOS (IPE)
+────────────────────────────────────────────────────────────────────────────────
+
+O IPE é subdividido em dois componentes com semânticas distintas.
+
+3a. IPE de Seleção (IPE_sel) — todos os métodos
+  Mede se o método concentra sua seleção de pontos nos dias de evento em
+  proporção maior do que o acaso puro esperaria:
+
+    IPE_sel(m, e) = [|selecionados que são evento e| / |total selecionados por m|]
+                  / [|dias de evento e na série| / |total de dias da série|]
+
+  IPE_sel > 1,0 → o método prioriza esse tipo de evento
+  IPE_sel = 1,0 → seleção proporcional ao acaso
+  IPE_sel < 1,0 → o método subestima esse tipo de evento
+
+3b. IPE de Importância (IPE_imp) — exclusivo para SHAP e LIME
+  Avalia se, entre os pontos efetivamente selecionados, os dias de evento
+  recebem contribuição (impacto) maior do que os dias comuns:
+
+    IPE_imp(m, e) = média(|contrib[t]| para t ∈ dias de evento selecionados)
+                  / média(|contrib[t]| para t ∉ dias de evento selecionados)
+
+  IPE_imp > 1,0 → o modelo atribui maior peso absoluto aos dias de evento
+  IPE_imp = 1,0 → mesmo peso para eventos e não-eventos
+  IPE_imp < 1,0 → o modelo considera os dias comuns mais discriminativos
+                  do que os dias de evento
+
+  Este componente revela o comportamento interno do modelo de ML: mesmo quando
+  um dia de pico ou vale é capturado pela seleção SHAP/LIME, ele pode receber
+  pontuação inferior à de dias aparentemente ordinários, indicando que o padrão
+  discriminativo aprendido pelo algoritmo não coincide com as anomalias
+  salientemente visíveis na série.
+
+────────────────────────────────────────────────────────────────────────────────
+MÉTRICA 4 — POSIÇÃO DOS EVENTOS NO RANKING SHAP/LIME
+────────────────────────────────────────────────────────────────────────────────
+
+Definição:
+  O SHAP e o LIME atribuem um valor de contribuição absoluta |contrib[t]| a
+  cada um dos 181 dias da série, permitindo ordenar todos os dias do mais para
+  o menos relevante (ranking de 1 a 181). Para cada dia de evento e, registra-se
+  sua posição nesse ranking e calcula-se a média entre todas as séries:
+
+    Rank(m, e) = média da posição no ranking de impacto dos dias de evento e
+
+  Referência: posição 91 representa o acaso puro (esperança da distribuição
+  uniforme sobre 181 posições).
+  Rank(m, e) < 91 → o método trata esses eventos como mais importantes que a média
+  Rank(m, e) > 91 → o método trata esses eventos como menos importantes que a média
+
+Complemento para LLMs:
+  Os LLMs realizam uma seleção direta de 3 a 20 pontos por série, sem produzir
+  um ranking completo. Para esses métodos, reporta-se a taxa de detecção (TDE,
+  Métrica 2) como equivalente funcional.
+
+Motivação:
+  A Métrica 4 permite quantificar a observação visual de que SHAP e LIME tendem
+  a destacar dias próximos à média da série, enquanto alguns LLMs identificam
+  preferencialmente os picos extremos. O contraste entre a posição no ranking
+  SHAP/LIME e a taxa de detecção dos LLMs fundamenta empiricamente a hipótese
+  central do estudo: métodos baseados em linguagem capturam anomalias que o
+  modelo de aprendizado de máquina considera irrelevantes para a decisão de
+  classificação.
+
+
+════════════════════════════════════════════════════════════════════════════════
+PARTE II — SEÇÃO DE RESULTADOS
+════════════════════════════════════════════════════════════════════════════════
+
+Os experimentos foram conduzidos sobre 7 séries temporais do conjunto de teste,
+cada uma com 181 dias de observação. O classificador base foi um Random Forest
+(RF). Os três modos de LLM (Bruto, Estatístico e Global) receberam feature
+importance do RF e os caminhos de decisão (top regras) como contexto adicional.
+A série bruta não foi incluída no prompt dos LLMs estatísticos.
+
+────────────────────────────────────────────────────────────────────────────────
+4.1 ACURÁCIA DE CLASSIFICAÇÃO
+────────────────────────────────────────────────────────────────────────────────
+
+Todos os quatro métodos de classificação — RF, LLM Bruto, LLM Estatístico e
+LLM Global — acertaram a classe de todas as 7 séries de teste (acurácia = 100%).
+O RF classificou corretamente 4 séries do perfil A (perfil_A_aluno_04,
+perfil_A_aluno_05, perfil_A_aluno_08, perfil_A_aluno_09) e 3 do perfil B
+(perfil_B_aluno_04, perfil_B_aluno_05, perfil_B_aluno_08). Os três modos de LLM
+replicaram exatamente as mesmas previsões, todos com nível de confiança
+reportado como "alto".
+
+Apesar da concordância na classe prevista, nenhum dos LLMs identificou os mesmos
+motivos de classificação apontados pelo especialista (alinhamento = "não" em
+100% das séries, para os três modos). Isso sugere que os modelos de linguagem
+chegam à resposta correta por caminhos interpretativos distintos dos critérios
+pedagógicos utilizados na anotação humana.
+
+────────────────────────────────────────────────────────────────────────────────
+4.2 MÉTRICA 1 — COBERTURA DE QUARTIS
+────────────────────────────────────────────────────────────────────────────────
+
+A Tabela 1 apresenta a distribuição temporal dos pontos selecionados por cada
+método ao longo dos quatro quartis da série.
+
+Tabela 1 — Cobertura de quartis (proporção dos pontos selecionados em cada período)
+
+  Método         Q1 (dias 1–45)  Q2 (dias 46–90)  Q3 (dias 91–135)  Q4 (dias 136–181)
+  ─────────────  ──────────────  ───────────────  ────────────────  ─────────────────
+  SHAP-RF              24,9%           24,9%             24,9%              25,4%
+  LIME-RF              24,9%           24,9%             24,9%              25,4%
+  LLM Bruto            53,2%           12,9%             27,4%               6,5%
+  LLM Estat.           53,8%           16,9%             10,8%              18,5%
+  LLM Global           58,6%           20,0%             11,4%              10,0%
+
+SHAP-RF e LIME-RF apresentaram distribuição praticamente uniforme, com
+aproximadamente 25% dos pontos em cada quartil — resultado consistente com o
+fato de atribuírem impacto a todos os 181 dias. Os três modos de LLM exibiram
+forte concentração no primeiro quartil (Q1: 53%–59%), sugerindo viés temporal
+em direção ao início das séries. O LLM Global mostrou o viés mais pronunciado,
+com quase 60% dos pontos selecionados nos primeiros 45 dias. Esse padrão pode
+refletir uma tendência dos modelos de linguagem de privilegiar informações
+posicionadas no início do contexto fornecido.
+
+────────────────────────────────────────────────────────────────────────────────
+4.3 MÉTRICA 2 — TAXA DE DETECÇÃO DE EVENTOS ESTRUTURAIS
+────────────────────────────────────────────────────────────────────────────────
+
+O conjunto de teste contém 106 dias de pico extremo, 72 dias de vale/outlier e
+400 dias de ruptura abrupta (contagens agregadas das 7 séries).
+
+Tabela 2 — Taxa de detecção de eventos estruturais (TDE)
+
+  Método         Picos extremos  Vales / outliers  Rupturas abruptas
+  ─────────────  ──────────────  ────────────────  ─────────────────
+  SHAP-RF             100,0%           100,0%             100,0%
+  LIME-RF             100,0%           100,0%             100,0%
+  LLM Bruto             9,4%             6,9%               4,8%
+  LLM Estat.           25,5%             9,7%               8,0%
+  LLM Global           32,1%             9,7%              10,5%
+
+SHAP-RF e LIME-RF atingiram TDE = 100% em todos os tipos de evento por
+construção, uma vez que cobrem todos os 181 dias com pontuações de impacto.
+Entre os LLMs, o LLM Global apresentou a maior taxa de detecção de picos
+extremos (32,1%), seguido pelo LLM Estatístico (25,5%) e pelo LLM Bruto (9,4%).
+A detecção de vales e rupturas foi sensivelmente inferior para todos os LLMs,
+nenhum ultrapassando 10% para rupturas abruptas — o tipo de evento mais
+frequente no conjunto de teste (400 ocorrências). Esses resultados indicam que
+os LLMs concentram sua atenção seletiva nos eventos de maior amplitude visual
+(picos), com menor sensibilidade a transições abruptas de nível.
+
+────────────────────────────────────────────────────────────────────────────────
+4.4 MÉTRICA 3 — ÍNDICE DE PRIORIZAÇÃO DE EVENTOS (IPE)
+────────────────────────────────────────────────────────────────────────────────
+
+4.4.1 IPE de Seleção
+
+Tabela 3 — IPE de seleção (referência: 1,0 = acaso puro)
+
+  Método         Picos extremos  Vales / outliers  Rupturas abruptas
+  ─────────────  ──────────────  ────────────────  ─────────────────
+  SHAP-RF              1,000            1,000              1,000
+  LIME-RF              1,000            1,000              1,000
+  LLM Bruto            1,905            0,887              1,101
+  LLM Estat.           5,003            1,430              1,662
+  LLM Global           6,285            2,416              2,038
+
+O IPE_sel de SHAP e LIME é exatamente 1,000 para todos os eventos, pois ambos
+selecionam todos os dias — o que torna essa métrica não discriminativa para esses
+métodos. Entre os LLMs, o LLM Global demonstrou a maior priorização de picos
+extremos (IPE_sel = 6,285), significando que a fração de pontos selecionados
+que coincidem com picos é mais de seis vezes superior à proporção esperada pelo
+acaso. O LLM Estatístico também apresentou alta priorização de picos (5,003).
+O LLM Bruto mostrou leve subestimação de vales (IPE_sel = 0,887 < 1,0), tendo
+priorizado picos (1,905) e rupturas (1,101).
+
+4.4.2 IPE de Importância (SHAP e LIME)
+
+Tabela 4 — IPE de importância SHAP-RF e LIME-RF (referência: 1,0 = peso igual)
+
+  Evento              SHAP-RF  LIME-RF
+  ──────────────────  ───────  ───────
+  Picos extremos       0,837    0,833
+  Vales / outliers     1,515    1,512
+  Rupturas abruptas    0,990    0,979
+
+O IPE_imp revela o comportamento interno do modelo Random Forest em relação aos
+eventos estruturais. Picos extremos receberam IPE_imp < 1 em ambos os métodos
+(SHAP: 0,837; LIME: 0,833), indicando que o modelo atribui, em média, menor
+contribuição absoluta aos dias de pico do que aos dias sem pico na mesma seleção.
+Ou seja, o RF não considera os valores extremos como os principais discriminadores
+entre os perfis de aprendizagem. Vales e outliers, ao contrário, foram
+relativamente priorizados (IPE_imp ≈ 1,51 para ambos os métodos), sugerindo que
+as depressões na série temporal têm maior peso classificatório para o modelo.
+As rupturas abruptas receberam tratamento neutro (IPE_imp ≈ 0,98–0,99).
+
+────────────────────────────────────────────────────────────────────────────────
+4.5 MÉTRICA 4 — POSIÇÃO DOS EVENTOS NO RANKING SHAP/LIME
+────────────────────────────────────────────────────────────────────────────────
+
+Tabela 5 — Posição média dos eventos no ranking de impacto SHAP/LIME
+           (referência: posição 91 = acaso; quanto menor, mais relevante)
+
+  Evento              SHAP-RF  LIME-RF
+  ──────────────────  ───────  ───────
+  Picos extremos       100,9     94,9
+  Vales / outliers      89,2     89,8
+  Rupturas abruptas     93,4     94,0
+
+Os resultados revelam um padrão consistente entre SHAP e LIME. Para o SHAP-RF,
+os picos extremos ocupam, em média, a posição 100,9 no ranking de importância —
+valor acima da referência de acaso (posição 91), indicando que o Random Forest
+trata os dias de pico extremo como menos relevantes para a decisão de
+classificação do que um dia médio qualquer. Esse resultado é notável: os dias de
+maior amplitude na série, visualmente salientes, recebem sistematicamente menor
+atenção do algoritmo de ML do que dias com valores próximos à média.
+
+Vales e outliers se comportam de forma oposta, posicionando-se acima do acaso
+em ambos os métodos (posição ~89,2–89,8), consistente com o IPE_imp > 1 da
+Tabela 4. Rupturas abruptas ficam próximas ao acaso (93,4–94,0).
+
+O LIME-RF apresentou resultados levemente distintos dos do SHAP-RF: a posição
+média dos picos foi 94,9 (menor que 100,9 do SHAP), sugerindo que a aproximação
+local do LIME captura uma relevância ligeiramente maior para os picos do que o
+gradiente de atribuição global do SHAP.
+
+────────────────────────────────────────────────────────────────────────────────
+4.6 DISTRIBUIÇÃO DAS PONTUAÇÕES SHAP E LIME POR SÉRIE
+────────────────────────────────────────────────────────────────────────────────
+
+A Tabela 6 apresenta os valores mínimo e máximo de |contribuição| atribuídos
+pelo SHAP e pelo LIME a cada série de teste.
+
+Tabela 6 — Amplitude dos scores de impacto por série
+
+  Série               Classe    SHAP min  SHAP max  LIME min  LIME max
+  ──────────────────  ────────  ────────  ────────  ────────  ────────
+  perfil_A_aluno_04   Perfil A  0,0000    0,0161    0,0000    0,0173
+  perfil_A_aluno_05   Perfil A  0,0000    0,0147    0,0000    0,0173
+  perfil_A_aluno_08   Perfil A  0,0000    0,0161    0,0000    0,0173
+  perfil_A_aluno_09   Perfil A  0,0000    0,0161    0,0000    0,0173
+  perfil_B_aluno_04   Perfil B  0,0000    0,0270    0,0000    0,0172
+  perfil_B_aluno_05   Perfil B  0,0000    0,0172    0,0000    0,0171
+  perfil_B_aluno_08   Perfil B  0,0000    0,0270    0,0000    0,0173
+
+As séries do Perfil B apresentam scores SHAP máximos mais elevados do que as
+do Perfil A (máx. 0,0270 vs. 0,0161 para a maioria do Perfil A). O SHAP mínimo
+é zero em todas as séries, indicando que o modelo atribui contribuição nula a
+pelo menos um dia em cada série. O LIME mantém amplitude mais uniforme entre
+perfis, com valores máximos próximos a 0,0173 na maioria dos casos, exceto nas
+séries B04 e B05 (máx. ~0,0171–0,0172). O teto do top-75% para o LIME é
+consistentemente 0,0003–0,0004 como valor mínimo de corte, revelando que os
+25% menos relevantes têm contribuição muito próxima de zero.
+
+────────────────────────────────────────────────────────────────────────────────
+4.7 SÍNTESE COMPARATIVA
+────────────────────────────────────────────────────────────────────────────────
+
+Os resultados evidenciam uma dissociação sistemática entre o que o modelo de
+aprendizado de máquina considera discriminativo e o que os métodos baseados em
+linguagem natural identificam como saliente:
+
+  (i) O Random Forest aprendeu a classificar os perfis de aprendizagem a partir
+  de padrões distribuídos ao longo de toda a série temporal — não dos eventos
+  extremos. O SHAP e o LIME confirmam isso: picos extremos ocupam posição acima
+  do acaso no ranking de impacto (Tabela 5) e recebem IPE_imp < 1 (Tabela 4),
+  enquanto vales e depressões são relativamente mais discriminativos para o
+  modelo.
+
+  (ii) Os LLMs, ao contrário, focam nos eventos de maior amplitude visual
+  (picos), com IPE_sel chegando a 6,3 para o LLM Global, e concentram
+  expressivamente sua seleção nos primeiros 45 dias da série (53%–59% no Q1).
+  Isso indica que os modelos de linguagem respondem a heurísticas de saliência
+  visual e posição temporal, não necessariamente ao padrão classificatório do
+  modelo supervisionado.
+
+  (iii) Apesar de acertarem a classe correta com 100% de precisão e alta
+  confiança, nenhum dos LLMs recuperou os motivos registrados pelo especialista,
+  sugerindo que a concordância na previsão mascara divergências fundamentais na
+  explicação do comportamento observado.
+
+  Esses achados têm implicações diretas para o uso de XAI em contextos
+  educacionais: a escolha do método de explicabilidade afeta substantivamente
+  quais aspectos da trajetória do estudante são enfatizados como relevantes,
+  podendo levar a interpretações pedagógicas divergentes mesmo quando a previsão
+  de desempenho é idêntica.
+
+================================================================================
+FIM DO DOCUMENTO
+================================================================================

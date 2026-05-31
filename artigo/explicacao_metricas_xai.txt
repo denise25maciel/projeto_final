@@ -1,0 +1,262 @@
+EXPLICAÇÃO DAS MÉTRICAS XAI DESENVOLVIDAS
+==========================================
+Gerado em: 2026-05-29
+Projeto: Modelos preditivos e explicabilidade com SHAP, LIME e LLM
+Aba na interface: "Métricas XAI"
+
+
+CONTEXTO
+--------
+O projeto compara cinco métodos de explicabilidade aplicados a séries temporais
+educacionais de 181 dias classificadas em dois perfis (perfil_A e perfil_B):
+
+  - SHAP-RF   : Shapley Additive Explanations aplicado ao Random Forest
+  - LIME-RF   : Local Interpretable Model-agnostic Explanations no Random Forest
+  - LLM bruto : LLM recebe os 181 valores diários completos
+  - LLM estat.: LLM recebe estatísticas por quartil (sem valores brutos)
+  - LLM global: LLM recebe apenas estatísticas globais da série
+
+Todas as métricas são calculadas sobre as séries do conjunto de TESTE e
+agregadas entre todas as séries de cada classe antes de serem exibidas.
+Os eventos estruturais usam o limiar de 1,5 × desvio-padrão, calculado
+individualmente para cada série.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MÉTRICA 1 — COBERTURA DE QUARTIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+O que mede:
+  Para cada método, qual a proporção dos seus pontos selecionados que
+  caem em cada um dos quatro quartis temporais da série:
+    Q1: dias   1 –  45
+    Q2: dias  46 –  90
+    Q3: dias  91 – 135
+    Q4: dias 136 – 181
+
+Como é calculado:
+  1. Para cada série de teste, coleta-se todos os dias selecionados
+     por cada método.
+  2. Cada dia é classificado no quartil correspondente.
+  3. Calcula-se a proporção: pontos no quartil X / total de pontos
+     do método naquela série.
+  4. As proporções são acumuladas e a média é calculada entre todas
+     as séries.
+
+Apresentação:
+  Heatmap 5 × 4 (métodos × quartis) com escala YlOrRd.
+  Tabela de proporções com gradiente de cor.
+
+Interpretação:
+  Uma distribuição uniforme (~25% em cada quartil) indica ausência
+  de viés temporal. Concentrações em quartis específicos revelam
+  que o método prioriza certas janelas da série. O LLM estat. tende
+  a distribuir pontos de forma mais controlada pelos quartis, em
+  contraste com SHAP e LIME que seguem a lógica interna do modelo.
+
+Limitação:
+  A proporção depende do número total de pontos selecionados por
+  cada método, que pode variar. Métodos que selecionam poucos
+  pontos podem apresentar variância alta na distribuição.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MÉTRICA 2 — TAXA DE DETECÇÃO DE EVENTOS ESTRUTURAIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+O que mede:
+  Fração dos dias de evento estrutural que foram cobertos por pelo
+  menos um ponto selecionado por cada método.
+
+Tipos de eventos detectados (limiares relativos à própria série):
+  - Picos extremos   : valor > média + 1,5 × desvio-padrão
+  - Vales / outliers : valor < média – 1,5 × desvio-padrão
+  - Rupturas abruptas: |valor[t] – valor[t–1]| > 1,5 × dp das
+                        diferenças consecutivas
+
+Como é calculado:
+  1. Para cada série, identifica-se os dias de evento de cada tipo.
+  2. Verifica-se se cada dia de evento aparece entre os pontos
+     selecionados pelo método (verificação binária: selecionado ou não).
+  3. Conta-se as detecções e divide pelo total de dias de evento
+     do mesmo tipo, acumulado entre todas as séries.
+
+Fórmula:
+  taxa = (Σ dias de evento detectados) / (Σ total de dias de evento)
+
+Apresentação:
+  Tabela 3 × 5 (eventos × métodos) com gradiente azul e coluna de
+  total de eventos para contextualizar os percentuais.
+
+Interpretação:
+  Uma taxa alta indica que o método tende a selecionar dias em que
+  ocorrem anomalias na série. Contudo, esta métrica é binária e não
+  distingue se a detecção ocorreu com alta ou baixa importância.
+  Métodos como SHAP e LIME tendem a apresentar taxas altas por
+  selecionarem muitos pontos, mas isso não implica que atribuíram
+  alta importância aos eventos — o que é capturado pelas métricas 3 e 4.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MÉTRICA 3 — ÍNDICE DE PRIORIZAÇÃO DE EVENTOS (IPE)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+O que mede:
+  O quanto cada método concentra atenção nos eventos estruturais
+  em relação ao que seria esperado pelo acaso.
+
+Componente A — IPE de seleção (todos os 5 métodos):
+  Mede se a proporção de pontos selecionados que são eventos é maior
+  ou menor do que a proporção de dias de evento na série.
+
+  Fórmula:
+    IPE_sel = (pontos selecionados que são eventos / total selecionado)
+              ────────────────────────────────────────────────────────
+              (dias de evento na série / 181)
+
+  Interpretação:
+    IPE > 1,0 → o método sobre-seleciona eventos (prioriza)
+    IPE = 1,0 → mesma proporção que o acaso
+    IPE < 1,0 → o método sub-seleciona eventos (ignora)
+
+Componente B — IPE de importância (somente SHAP-RF e LIME-RF):
+  Mede se a contribuição (|valor SHAP/LIME|) atribuída aos dias de
+  evento é maior ou menor do que a atribuída aos dias comuns.
+
+  Fórmula:
+    IPE_imp = média(|contribuição| nos dias de evento selecionados)
+              ──────────────────────────────────────────────────────
+              média(|contribuição| nos dias sem evento selecionados)
+
+  Interpretação:
+    IPE_imp > 1,0 → eventos recebem contribuição maior que o restante
+    IPE_imp < 1,0 → eventos recebem contribuição menor (subvalorização)
+
+  Este componente é o mais relevante para defender a complementaridade
+  dos métodos: mesmo quando SHAP/LIME selecionam um dia de evento,
+  a importância atribuída a ele pode ser menor do que a atribuída a
+  dias sem evento estrutural.
+
+Apresentação:
+  Heatmap RdYlGn para o IPE de seleção (5 métodos × 3 eventos).
+  Tabela com gradiente para o IPE de importância (2 métodos × 3 eventos).
+
+Limitação:
+  O IPE de importância só pode ser calculado para os pontos que o
+  método efetivamente selecionou (top-N). Se os dias de evento não
+  estiverem entre os selecionados, a comparação fica restrita a um
+  subconjunto possivelmente viesado.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MÉTRICA 4 — POSIÇÃO DOS EVENTOS NO RANKING SHAP/LIME +
+            TAXA DE DETECÇÃO DOS LLMs
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Motivação:
+  Ao visualizar os gráficos das séries (aba Relatório), observa-se que
+  SHAP e LIME tendem a selecionar pontos próximos à média, enquanto
+  alguns LLMs (especialmente LLM Estat. e LLM Global) identificam
+  diretamente os picos extremos. Esta métrica quantifica essa observação
+  visual de forma objetiva.
+
+Componente A — Posição média dos eventos no ranking SHAP/LIME:
+
+  SHAP e LIME atribuem um valor de contribuição a todos os 181 dias
+  da série e os ordenam do maior ao menor impacto absoluto, gerando
+  um ranking de 1 (mais importante) a 181 (menos importante).
+
+  Para cada tipo de evento estrutural (picos, vales, rupturas),
+  calcula-se a posição média que esses dias ocupam no ranking.
+
+  Fórmula:
+    posição_média = média do ranking de todos os dias de evento
+                    encontrados nas séries de teste
+
+  Interpretação:
+    Posição  1–30  → eventos tratados como muito importantes
+    Posição 91     → referência do acaso (posição esperada ao acaso)
+    Posição > 91   → eventos tratados como menos importantes que a média
+    Posição 150+   → eventos sistematicamente ignorados pelo método
+
+  Apresentação:
+    Tabela 3 × 2 (eventos × SHAP/LIME) com gradiente RdYlGn invertido:
+    verde = posição baixa (importante), vermelho = posição alta (ignorado).
+
+Componente B — Taxa de detecção dos LLMs:
+
+  Os métodos LLM não geram um ranking completo — eles selecionam
+  diretamente de 3 a 20 pontos por série. A métrica calcula a fração
+  dos dias de evento que foram efetivamente incluídos nessa seleção.
+
+  Fórmula:
+    taxa_det = (Σ dias de evento presentes na seleção do LLM)
+               ──────────────────────────────────────────────
+               (Σ total de dias de evento nas séries de teste)
+
+  Interpretação:
+    0%   → o LLM nunca seleciona dias de evento
+    100% → o LLM sempre seleciona todos os dias de evento
+    Valores altos indicam sensibilidade a anomalias estruturais.
+
+  Apresentação:
+    Tabela 3 × 3 (eventos × LLMs) com gradiente azul ao lado da
+    tabela de posições SHAP/LIME, para comparação direta lado a lado.
+
+Leitura conjunta das duas colunas:
+  A força desta métrica está na leitura paralela: se SHAP posiciona
+  picos extremos na posição 120/181 e o LLM Estat. detecta 70% dos
+  mesmos picos, o contraste quantifica exatamente o argumento central
+  do estudo — os métodos baseados em LLM capturam anomalias que o
+  modelo de ML considera irrelevantes para a decisão de classificação.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RELAÇÃO ENTRE AS MÉTRICAS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Métrica 1 (cobertura de quartis)
+  └─ Responde: onde na série cada método concentra seus pontos?
+     Perspectiva temporal (início vs. meio vs. fim da série).
+
+Métrica 2 (taxa de detecção)
+  └─ Responde: os métodos encontram os eventos estruturais?
+     Perspectiva binária: selecionou ou não selecionou.
+
+Métrica 3 (IPE)
+  └─ Responde: quando o método seleciona um evento, ele o valoriza?
+     Perspectiva de magnitude da importância atribuída.
+
+Métrica 4 (ranking + taxa de detecção)
+  └─ Responde: em que posição os eventos estruturais ficam no ranking
+     interno do SHAP/LIME, e com que frequência os LLMs os escolhem?
+     Perspectiva comparativa direta entre os dois grupos de métodos.
+
+As métricas 2, 3 e 4 são complementares e progressivamente mais
+refinadas na mesma questão central: os eventos estruturais (outliers,
+picos, rupturas) são tratados como relevantes pelos diferentes métodos?
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DEFINIÇÃO DOS EVENTOS ESTRUTURAIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Todos os limiares são calculados por série, não globalmente,
+garantindo que a definição de "evento" seja relativa ao comportamento
+individual de cada aluno.
+
+  Picos extremos:
+    Dia d é pico se valor[d] > média(série) + 1,5 × dp(série)
+    Representa: acesso ao material muito acima do padrão do aluno.
+
+  Vales / outliers negativos:
+    Dia d é vale se valor[d] < média(série) – 1,5 × dp(série)
+    Representa: queda abrupta no engajamento abaixo do padrão.
+
+  Rupturas abruptas:
+    Dia d é ruptura se |valor[d] – valor[d–1]| > 1,5 × dp(diffs)
+    onde diffs = diferenças absolutas consecutivas da série.
+    Representa: mudança brusca de comportamento de um dia para o outro,
+    independente de ser alta ou baixa.
+
+  Implementação: arquivo app.py, função renderizar_aba_metricas_xai

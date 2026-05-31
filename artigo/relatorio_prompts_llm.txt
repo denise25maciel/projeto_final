@@ -1,0 +1,185 @@
+RELATÓRIO — O QUE É ENVIADO A CADA PROMPT LLM
+===============================================
+Gerado em: 2026-05-29
+Projeto: Modelos preditivos e explicabilidade com SHAP, LIME e LLM
+Arquivo de referência: teste_llm_modelos.py (função construir_prompt_llm)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. BLOCO FIXO — igual nos três modos (bruto, estat., global)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Campo                        Conteúdo
+---------------------------  --------------------------------------------------------
+Papel do agente              "Você é um agente de explicabilidade de séries
+                             temporais educacionais."
+Contexto                     Classes possíveis (perfil_A / perfil_B), nome do
+                             algoritmo classificador
+Classe prevista              Resultado do Random Forest para aquela série
+Probabilidades               Ex.: {"perfil_A": 0.72, "perfil_B": 0.28}
+Feature importance           Top-10 features por importância Gini/MDI do modelo
+  (opcional)                 Controlado pelo checkbox "Incluir feature importance
+                             no LLM". Quando desativado, o prompt informa
+                             explicitamente: "não fornecida nesta execução."
+Caminhos de decisão          Top-10 dias mais frequentes nos caminhos de decisão
+  (opcional)                 das árvores para aquela série específica.
+                             Controlado pelo checkbox "Incluir caminhos de decisão
+                             no LLM". Quando desativado, o prompt informa:
+                             "não disponível para este tipo de algoritmo."
+Formato de resposta          JSON obrigatório com campos fixos:
+                             id_serie, analise_global_da_serie,
+                             classe_interpretada_pelo_llm, nivel_confianca_llm,
+                             motivos_identificados_pelo_llm, explicacao_do_llm,
+                             llm_pontos (lista de pontos com dia, valor,
+                             importancia, sentido, motivo_associado, justificativa),
+                             observacao_metodologica
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. BLOCO VARIÁVEL — dados da série (difere por modo)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+──────────────────────────────────────────────────────────────────
+LLM BRUTO  (modo_entrada_llm = "bruto")
+──────────────────────────────────────────────────────────────────
+Dados enviados:
+  - Lista completa dos 181 dias no formato:
+    [{"data": "2026-02-01", "valor": 42}, {"data": "2026-02-02", "valor": 38}, ...]
+
+Tarefa passada ao LLM:
+  1. Leia a série temporal completa e faça uma análise global.
+     Você decide o que observar.
+  2. Identifique os pontos que considera significativos para
+     caracterizar o comportamento da série.
+  3. Indique a classe mais plausível: perfil_A ou perfil_B.
+  4. Gere uma explicação textual da série.
+  5. Para cada ponto significativo, explique por que ele foi
+     considerado relevante.
+
+Regras para seleção de pontos:
+  - Campo "dia": posição na série começando em 1.
+  - Campo "valor": exatamente o valor observado naquele dia.
+  - Campo "importancia": número entre 0 e 1.
+  - Campo "sentido": "favorece", "reduz" ou "evidencia".
+  - Campo "motivo_associado": descreve livremente o padrão observado.
+  - Escolher de 3 a 20 pontos.
+  - Os pontos devem emergir da análise global, não de uma varredura
+    isolada ponto a ponto.
+
+Campos extras no JSON de resposta (além do bloco fixo):
+  - observacao_metodologica: referencia o algoritmo e a série de teste.
+
+──────────────────────────────────────────────────────────────────
+LLM ESTAT.  (modo_entrada_llm = "estatisticas")
+──────────────────────────────────────────────────────────────────
+Dados enviados:
+  - Estatísticas GLOBAIS da série (média, mediana, desvio padrão,
+    mínimo, máximo, outliers globais, etc.)
+  - Estatísticas por QUARTIL (Q1 a Q4), cada um contendo:
+    posições (início/fim), média, desvio, mín, máx, outliers,
+    picos identificados naquele segmento
+  - Nota explícita: "O campo 'posicao' nas estatísticas corresponde
+    ao índice 1-based que deve ser usado no campo 'dia' da resposta."
+  - OPCIONAL: se "Incluir série bruta nos LLMs estatísticos" estiver
+    ativo, os 181 valores diários completos também são anexados ao
+    final do bloco.
+
+Tarefa passada ao LLM (5 passos obrigatórios e sequenciais):
+  Passo 1 — Análise do Quartil 1 (posições 1 a 45):
+    descrever comportamento — nível médio, variação, picos,
+    outliers e regularidade.
+  Passo 2 — Análise do Quartil 2 (posições 46 a 90): idem.
+  Passo 3 — Análise do Quartil 3 (posições 91 a 135): idem.
+  Passo 4 — Análise do Quartil 4 (posições 136 a 181): idem.
+  Passo 5 (implícito na síntese): classificar a série e selecionar
+    os pontos mais relevantes a partir da visão integrada dos quartis.
+
+Regras para seleção de pontos:
+  - Campo "dia": usar o valor do campo "posicao" nas estatísticas
+    dos quartis (não inferência livre).
+  - Campo "valor": exatamente o valor informado para aquele ponto.
+  - Campo "importancia": número entre 0 e 1.
+  - Campo "sentido": "favorece", "reduz" ou "evidencia".
+  - Escolher de 3 a 20 pontos, emergindo da síntese do Passo 5.
+    Não distribuir mecanicamente pontos entre os quartis.
+  - Os pontos devem ser os mais informativos para caracterizar a
+    compreensão global da série.
+
+Campos extras no JSON de resposta (além do bloco fixo):
+  - analise_quartil_1, analise_quartil_2, analise_quartil_3,
+    analise_quartil_4 (textos individuais por quartil)
+  - observacao_metodologica: informa que a explicação foi feita
+    com estatísticas por quartis, sem os valores brutos.
+
+──────────────────────────────────────────────────────────────────
+LLM GLOBAL  (modo_entrada_llm = "global")
+──────────────────────────────────────────────────────────────────
+Dados enviados:
+  - Apenas as estatísticas GLOBAIS da série (sem divisão por quartil,
+    sem os valores brutos diários).
+  - Nota explícita: "O campo 'posicao' nas estatísticas corresponde
+    ao índice 1-based que deve ser usado no campo 'dia' da resposta."
+  - OPCIONAL: se "Incluir série bruta nos LLMs estatísticos" estiver
+    ativo, os 181 valores diários completos também são anexados.
+
+Tarefa passada ao LLM:
+  1. Analise as estatísticas globais da série fornecidas.
+  2. Identifique os pontos mais significativos com base nessas
+     estatísticas (picos, outliers, ponto de ruptura, valor
+     mínimo/máximo, etc.).
+  3. Indique a classe mais plausível: perfil_A ou perfil_B.
+  4. Gere uma explicação textual da série.
+  5. Para cada ponto significativo, explique por que ele foi relevante.
+
+Regras para seleção de pontos:
+  - Campo "dia": usar o valor do campo "posicao" nas estatísticas
+    globais.
+  - Campo "valor": exatamente o valor informado para aquele ponto.
+  - Campo "importancia": número entre 0 e 1.
+  - Campo "sentido": "favorece", "reduz" ou "evidencia".
+  - Escolher de 3 a 20 pontos.
+  - Os pontos devem emergir das estatísticas globais, não de
+    suposições sobre valores brutos.
+
+Campos extras no JSON de resposta (além do bloco fixo):
+  - observacao_metodologica: informa que a explicação foi feita
+    apenas com estatísticas globais, sem valores brutos e sem
+    divisão por quartis.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. RESUMO COMPARATIVO — informação disponível por modo
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Dado                          LLM bruto   LLM estat.   LLM global
+----------------------------  ----------  -----------  ----------
+Valores diários completos     Sempre      Opcional     Opcional
+Estatísticas por quartil      Não         Sim          Não
+Estatísticas globais          Não         Sim          Sim
+Feature importance do modelo  Opcional    Opcional     Opcional
+Caminhos de decisão           Opcional    Opcional     Opcional
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. NOTA METODOLÓGICA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+O design deliberado dos três modos cria um gradiente de contexto:
+
+  LLM global   → menor contexto possível (só estatísticas agregadas)
+  LLM estat.   → contexto médio, estruturado pela lógica de quartis
+  LLM bruto    → contexto máximo, liberdade analítica total
+
+Esse gradiente justifica metodologicamente a comparação entre os
+três modos e entre eles e os métodos SHAP/LIME, que operam
+exclusivamente sobre a estrutura interna do modelo (sem acesso a
+nenhum dos blocos contextuais acima).
+
+SHAP e LIME recebem apenas:
+  - O modelo treinado (Random Forest)
+  - A linha de features da série (x_linha: os 181 valores como
+    colunas dia_*)
+  - LIME adicionalmente recebe X_train para calibrar as perturbações
+
+Nenhum dos blocos contextuais (feature importance, caminhos de
+decisão, estatísticas) é passado a SHAP ou LIME.

@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\dnise\\\\OneDrive\\\\Documentos\\\\artigo_projeto_final\\\\projeto_final_3\" -Recurse -Force)",
+      "Bash(Select-Object FullName, PSIsContainer)",
+      "Bash(Sort-Object FullName)",
+      "Bash(Format-Table -AutoSize)",
+      "PowerShell(Get-ChildItem \"c:\\\\Users\\\\dnise\\\\OneDrive\\\\Documentos\\\\artigo_projeto_final\\\\projeto_final_3\" -File | Where-Object { $_.Extension -eq '.py' -or $_.Extension -eq '.json' -or $_.Extension -eq '.txt' })",
+      "Bash(python -c \"import pandas as pd; df = pd.read_csv\\('comparacao_resultados.csv'\\); print\\(df.columns.tolist\\(\\)\\); print\\(df['tipo_algoritmo'].unique\\(\\)\\); print\\(df.shape\\)\")",
+      "Bash(venv\\\\Scripts\\\\python.exe -m py_compile app.py)"
+    ]
+  }
+}
